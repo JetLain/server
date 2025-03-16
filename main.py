@@ -74,7 +74,7 @@ async def startup_event():
             conn.close()
 
 @app.post("/signup")
-async def signup(nickname: str, email: str, password: str):
+async def signup(nickname: str = Body(...), email: str = Body(...), password: str = Body(...)):
     hashed_password = pwd_context.hash(password)
     try:
         conn = get_db_connection()
@@ -97,14 +97,14 @@ async def signup(nickname: str, email: str, password: str):
         conn.commit()
         return {"message": "User created successfully", "user_id": user_id}
     except psycopg2.Error as err:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(err)}")
+        raise HTTPException(status_code=500, detail=str(err))
     finally:
         if conn:
             cursor.close()
             conn.close()
 
 @app.post("/login")
-async def login(email: str, password: str):
+async def login(email: str = Body(...), password: str = Body(...)):
     try:
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -123,7 +123,7 @@ async def login(email: str, password: str):
             conn.close()
 
 @app.post("/generate_reset_code")
-async def generate_reset_code(email: str):
+async def generate_reset_code(email: str = Body(...)):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -166,7 +166,7 @@ async def generate_reset_code(email: str):
             conn.close()
 
 @app.post("/verify_reset_code")
-async def verify_reset_code(email: str, code: str):
+async def verify_reset_code(email: str = Body(...), code: str = Body(...)):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -189,7 +189,7 @@ async def verify_reset_code(email: str, code: str):
             conn.close()
 
 @app.post("/reset_password")
-async def reset_password(email: str, new_password: str):
+async def reset_password(email: str = Body(...), new_password: str = Body(...)):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -205,7 +205,7 @@ async def reset_password(email: str, new_password: str):
             conn.close()
 
 @app.post("/add_course")
-async def add_course(name: str):
+async def add_course(name: str = Body(...)):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
