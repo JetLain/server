@@ -291,7 +291,7 @@ async def google_auth_redirect():
         )
         auth_tokens[state] = {"status": "pending"}
         logger.info(f"Redirecting to Google auth URL with state: {state}")
-        return RedirectResponse(authorization_url)  # Удаляем ручное добавление &state={state}
+        return RedirectResponse(authorization_url)
     except FileNotFoundError as e:
         logger.error("Client secrets file not found")
         raise HTTPException(status_code=500, detail="Client secrets file not found.")
@@ -305,18 +305,25 @@ async def google_auth_redirect():
 @app.get("/google-auth/callback")
 async def google_auth_callback(code: str, state: str):
     logger.info(f"Handling Google auth callback with state: {state}")
+    if state not in auth_tokens:
+        logger.error(f"State {state} not found in auth_tokens")
+        raise HTTPException(status_code=400, detail="Invalid state")
+
     try:
         flow = InstalledAppFlow.from_client_secrets_file(
             CLIENT_SECRET_FILE,
             scopes=SCOPES,
             redirect_uri="https://server-zitz.onrender.com/google-auth/callback"
         )
+        logger.info("Fetching token...")
         flow.fetch_token(code=code)
         creds = flow.credentials
+        logger.info("Token fetched successfully")
 
         user_info = await get_user_info(creds.token)
         if not user_info:
             logger.error("Failed to retrieve user info")
+            auth_tokens[state] = {"status": "error", "detail": "Failed to retrieve user info"}
             raise HTTPException(status_code=400, detail="Failed to retrieve user info")
 
         conn = get_db_connection()
