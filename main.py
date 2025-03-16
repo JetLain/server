@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body  # Добавляем импорт Body
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from passlib.context import CryptContext
@@ -18,7 +18,7 @@ PGSQL_CONFIG = {
     "port": 6543,
     "database": "postgres",
     "user": "postgres.usrafshcraymcxtqkuyr",
-    "password": os.getenv("SUPABASE_PASSWORD", "rUBEC200312"),  # Замените на ваш пароль
+    "password": os.getenv("SUPABASE_PASSWORD", "rUBEC200312"),
     "sslmode": "require"
 }
 
@@ -116,7 +116,7 @@ async def login(email: str = Body(...), password: str = Body(...)):
             raise HTTPException(status_code=401, detail="Invalid email or password")
         return {"message": "Login successful", "user_id": user["id"]}
     except psycopg2.Error as err:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(err)}")
+        raise HTTPException(status_code=500, detail=str(err))
     finally:
         if conn:
             cursor.close()
@@ -157,7 +157,7 @@ async def generate_reset_code(email: str = Body(...)):
         
         return {"message": "Reset code sent to your email"}
     except psycopg2.Error as err:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(err)}")
+        raise HTTPException(status_code=500, detail=str(err))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
     finally:
@@ -182,7 +182,7 @@ async def verify_reset_code(email: str = Body(...), code: str = Body(...)):
         conn.commit()
         return {"message": "Code verified"}
     except psycopg2.Error as err:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(err)}")
+        raise HTTPException(status_code=500, detail=str(err))
     finally:
         if conn:
             cursor.close()
@@ -198,7 +198,7 @@ async def reset_password(email: str = Body(...), new_password: str = Body(...)):
         conn.commit()
         return {"message": "Password reset successfully"}
     except psycopg2.Error as err:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(err)}")
+        raise HTTPException(status_code=500, detail=str(err))
     finally:
         if conn:
             cursor.close()
@@ -214,7 +214,7 @@ async def add_course(name: str = Body(...)):
         conn.commit()
         return {"message": "Course added successfully", "course_id": course_id}
     except psycopg2.Error as err:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(err)}")
+        raise HTTPException(status_code=500, detail=str(err))
     finally:
         if conn:
             cursor.close()
@@ -229,7 +229,7 @@ async def get_courses():
         courses = cursor.fetchall()
         return {"courses": courses}
     except psycopg2.Error as err:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(err)}")
+        raise HTTPException(status_code=500, detail=str(err))
     finally:
         if conn:
             cursor.close()
