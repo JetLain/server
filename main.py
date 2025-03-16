@@ -291,7 +291,7 @@ async def google_auth_redirect():
         )
         auth_tokens[state] = {"status": "pending"}
         logger.info(f"Redirecting to Google auth URL with state: {state}")
-        return RedirectResponse(authorization_url + f"&state={state}")
+        return RedirectResponse(authorization_url)  # Удаляем ручное добавление &state={state}
     except FileNotFoundError as e:
         logger.error("Client secrets file not found")
         raise HTTPException(status_code=500, detail="Client secrets file not found.")
@@ -301,7 +301,7 @@ async def google_auth_redirect():
     except Exception as e:
         logger.error(f"Google auth failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Google auth failed: {str(e)}")
-
+    
 @app.get("/google-auth/callback")
 async def google_auth_callback(code: str, state: str):
     logger.info(f"Handling Google auth callback with state: {state}")
