@@ -1,11 +1,12 @@
 import os
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
 import psycopg2
 import random
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from dotenv import load_dotenv
+import smtplib
+from email.mime.text import MIMEText
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -105,9 +106,22 @@ async def generate_reset_code(email: str):
                       (email, code, expires_at, code, expires_at))
         conn.commit()
 
-        return {"message": "Reset code generated", "code": code}  # Для теста, в продакшене убрать возврат кода
+        # Отправка email
+        msg = MIMEText(f"Your reset code is: {code}")
+        msg["Subject"] = "Password Reset Code"
+        msg["From"] = os.getenv("EMAIL_USER", "your-email@example.com")
+        msg["To"] = email
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(os.getenv("EMAIL_USER", "your-email@example.com"), os.getenv("EMAIL_PASSWORD", "your-email-password"))
+            server.sendmail(os.getenv("EMAIL_USER", "your-email@example.com"), email, msg.as_string())
+
+        return {"message": "Reset code sent to your email"}
     except psycopg2.Error as err:
         raise HTTPException(status_code=500, detail=str(err))
+    except smtplib.SMTPException as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
     finally:
         if conn:
             cursor.close()
