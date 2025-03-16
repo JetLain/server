@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException, Body  # Добавляем импорт Body
+from fastapi import FastAPI, HTTPException, Body
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from passlib.context import CryptContext
@@ -9,6 +9,15 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+import requests
+from fastapi.responses import RedirectResponse
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -31,6 +40,11 @@ EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "ieuhbnegqnbosioe")
 EMAIL_HOST = "smtp.yandex.ru"
 EMAIL_PORT = 465
 
+# Путь к client_secret.json на сервере
+CLIENT_SECRET_FILE = "client_secret.json"
+SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"]
+auth_tokens = {}
+
 def get_db_connection():
     try:
         conn = psycopg2.connect(**PGSQL_CONFIG)
@@ -40,6 +54,7 @@ def get_db_connection():
 
 @app.on_event("startup")
 async def startup_event():
+    logger.info("Starting up the application...")
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -66,8 +81,9 @@ async def startup_event():
             )
         """)
         conn.commit()
+        logger.info("Database tables created successfully")
     except psycopg2.Error as err:
-        print(f"Error initializing database: {err}")
+        logger.error(f"Error initializing database: {err}")
     finally:
         if conn:
             cursor.close()
@@ -75,6 +91,7 @@ async def startup_event():
 
 @app.post("/signup")
 async def signup(nickname: str = Body(...), email: str = Body(...), password: str = Body(...)):
+    logger.info(f"Signup attempt for email: {email}")
     hashed_password = pwd_context.hash(password)
     try:
         conn = get_db_connection()
@@ -95,8 +112,10 @@ async def signup(nickname: str = Body(...), email: str = Body(...), password: st
         )
         user_id = cursor.fetchone()[0]
         conn.commit()
+        logger.info(f"User created successfully with ID: {user_id}")
         return {"message": "User created successfully", "user_id": user_id}
     except psycopg2.Error as err:
+        logger.error(f"Database error during signup: {err}")
         raise HTTPException(status_code=500, detail=str(err))
     finally:
         if conn:
@@ -105,6 +124,7 @@ async def signup(nickname: str = Body(...), email: str = Body(...), password: st
 
 @app.post("/login")
 async def login(email: str = Body(...), password: str = Body(...)):
+    logger.info(f"Login attempt for email: {email}")
     try:
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -114,8 +134,10 @@ async def login(email: str = Body(...), password: str = Body(...)):
             raise HTTPException(status_code=401, detail="Invalid email or password")
         if not pwd_context.verify(password, user["password"]):
             raise HTTPException(status_code=401, detail="Invalid email or password")
+        logger.info(f"Login successful for user ID: {user['id']}")
         return {"message": "Login successful", "user_id": user["id"]}
     except psycopg2.Error as err:
+        logger.error(f"Database error during login: {err}")
         raise HTTPException(status_code=500, detail=str(err))
     finally:
         if conn:
@@ -124,6 +146,7 @@ async def login(email: str = Body(...), password: str = Body(...)):
 
 @app.post("/generate_reset_code")
 async def generate_reset_code(email: str = Body(..., embed=True)):
+    logger.info(f"Generating reset code for email: {email}")
     if not email:
         raise HTTPException(status_code=400, detail="Email is required.")
     try:
@@ -156,10 +179,13 @@ async def generate_reset_code(email: str = Body(..., embed=True)):
             server.login(sender_email, EMAIL_PASSWORD)
             server.sendmail(sender_email, email, msg.as_string())
         
+        logger.info(f"Reset code sent to email: {email}")
         return {"message": "Reset code sent to your email"}
     except psycopg2.Error as err:
+        logger.error(f"Database error during reset code generation: {err}")
         raise HTTPException(status_code=500, detail=str(err))
     except Exception as e:
+        logger.error(f"Failed to send email: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
     finally:
         if conn:
@@ -168,6 +194,7 @@ async def generate_reset_code(email: str = Body(..., embed=True)):
 
 @app.post("/verify_reset_code")
 async def verify_reset_code(email: str = Body(...), code: str = Body(...)):
+    logger.info(f"Verifying reset code for email: {email}")
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -181,8 +208,10 @@ async def verify_reset_code(email: str = Body(...), code: str = Body(...)):
         
         cursor.execute("DELETE FROM password_resets WHERE email = %s", (email,))
         conn.commit()
+        logger.info(f"Reset code verified for email: {email}")
         return {"message": "Code verified"}
     except psycopg2.Error as err:
+        logger.error(f"Database error during code verification: {err}")
         raise HTTPException(status_code=500, detail=str(err))
     finally:
         if conn:
@@ -191,14 +220,17 @@ async def verify_reset_code(email: str = Body(...), code: str = Body(...)):
 
 @app.post("/reset_password")
 async def reset_password(email: str = Body(...), new_password: str = Body(...)):
+    logger.info(f"Resetting password for email: {email}")
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         hashed_password = pwd_context.hash(new_password)
         cursor.execute("UPDATE users SET password = %s WHERE email = %s", (hashed_password, email))
         conn.commit()
+        logger.info(f"Password reset successfully for email: {email}")
         return {"message": "Password reset successfully"}
     except psycopg2.Error as err:
+        logger.error(f"Database error during password reset: {err}")
         raise HTTPException(status_code=500, detail=str(err))
     finally:
         if conn:
@@ -207,14 +239,17 @@ async def reset_password(email: str = Body(...), new_password: str = Body(...)):
 
 @app.post("/add_course")
 async def add_course(name: str = Body(...)):
+    logger.info(f"Adding course with name: {name}")
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("INSERT INTO courses (name) VALUES (%s) RETURNING id", (name,))
         course_id = cursor.fetchone()[0]
         conn.commit()
+        logger.info(f"Course added successfully with ID: {course_id}")
         return {"message": "Course added successfully", "course_id": course_id}
     except psycopg2.Error as err:
+        logger.error(f"Database error during course addition: {err}")
         raise HTTPException(status_code=500, detail=str(err))
     finally:
         if conn:
@@ -223,28 +258,130 @@ async def add_course(name: str = Body(...)):
 
 @app.get("/courses")
 async def get_courses():
+    logger.info("Fetching all courses")
     try:
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("SELECT id, name FROM courses")
         courses = cursor.fetchall()
+        logger.info(f"Fetched {len(courses)} courses")
         return {"courses": courses}
     except psycopg2.Error as err:
+        logger.error(f"Database error during fetching courses: {err}")
         raise HTTPException(status_code=500, detail=str(err))
     finally:
         if conn:
             cursor.close()
             conn.close()
 
+auth_tokens = {}
+
+@app.get("/google-auth")
+async def google_auth_redirect():
+    logger.info("Initiating Google authentication")
+    try:
+        flow = InstalledAppFlow.from_client_secrets_file(
+            CLIENT_SECRET_FILE,
+            scopes=SCOPES,
+            redirect_uri="https://server-zitz.onrender.com/google-auth/callback"
+        )
+        authorization_url, state = flow.authorization_url(
+            access_type="offline",
+            include_granted_scopes="true"
+        )
+        auth_tokens[state] = {"status": "pending"}
+        logger.info(f"Redirecting to Google auth URL with state: {state}")
+        return RedirectResponse(authorization_url + f"&state={state}")
+    except FileNotFoundError as e:
+        logger.error("Client secrets file not found")
+        raise HTTPException(status_code=500, detail="Client secrets file not found.")
+    except ValueError as e:
+        logger.error(f"Invalid client secrets file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Invalid client secrets file: {str(e)}")
+    except Exception as e:
+        logger.error(f"Google auth failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Google auth failed: {str(e)}")
+
+@app.get("/google-auth/callback")
+async def google_auth_callback(code: str, state: str):
+    logger.info(f"Handling Google auth callback with state: {state}")
+    try:
+        flow = InstalledAppFlow.from_client_secrets_file(
+            CLIENT_SECRET_FILE,
+            scopes=SCOPES,
+            redirect_uri="https://server-zitz.onrender.com/google-auth/callback"
+        )
+        flow.fetch_token(code=code)
+        creds = flow.credentials
+
+        user_info = await get_user_info(creds.token)
+        if not user_info:
+            logger.error("Failed to retrieve user info")
+            raise HTTPException(status_code=400, detail="Failed to retrieve user info")
+
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT * FROM users WHERE email = %s", (user_info["email"],))
+        user = cursor.fetchone()
+
+        if not user:
+            nickname = user_info.get("name", user_info["email"].split("@")[0])
+            password = pwd_context.hash(str(random.randint(100000, 999999)))
+            cursor.execute(
+                "INSERT INTO users (nickname, email, password) VALUES (%s, %s, %s) RETURNING id",
+                (nickname, user_info["email"], password)
+            )
+            user_id = cursor.fetchone()["id"]
+            logger.info(f"Created new user with ID: {user_id}")
+        else:
+            user_id = user["id"]
+            logger.info(f"Found existing user with ID: {user_id}")
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        auth_tokens[state] = {
+            "status": "success",
+            "user_id": user_id,
+            "token": creds.token,
+            "refresh_token": creds.refresh_token
+        }
+        logger.info("Google authentication successful")
+        return {"message": "Google authentication successful. You can close this window."}
+    except Exception as e:
+        auth_tokens[state] = {"status": "error", "detail": str(e)}
+        logger.error(f"Google auth failed in callback: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Google auth failed: {str(e)}")
+
+@app.get("/google-auth/status/{state}")
+async def check_auth_status(state: str):
+    logger.info(f"Checking auth status for state: {state}")
+    if state not in auth_tokens:
+        logger.error("State not found")
+        raise HTTPException(status_code=404, detail="State not found")
+    return auth_tokens[state]
+
+async def get_user_info(token: str):
+    headers = {"Authorization": f"Bearer {token}"}
+    response = requests.get("https://www.googleapis.com/oauth2/v3/userinfo", headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    return None
+
 @app.get("/test-db")
 async def test_db():
+    logger.info("Testing database connection")
     conn = None
     try:
         conn = get_db_connection()
+        logger.info("Database connection successful")
         return {"message": "Database connection successful"}
     except psycopg2.Error as err:
+        logger.error(f"Database connection failed: {str(err)}")
         raise HTTPException(status_code=500, detail=f"Database connection failed: {str(err)}")
     except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
     finally:
         if conn:
