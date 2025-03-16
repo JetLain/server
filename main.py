@@ -1,19 +1,29 @@
+import os
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 import psycopg2
 import random
 from datetime import datetime, timedelta
+from passlib.context import CryptContext
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения
+load_dotenv()
 
 app = FastAPI()
 
-# Параметры подключения к Supabase
+# Параметры подключения к Supabase через переменные окружения
 PGSQL_CONFIG = {
-    "host": "db.usrafshcraymcxtqkuyr.supabase.co",
+    "host": os.getenv("SUPABASE_HOST", "db.usrafshcraymcxtqkuyr.supabase.co"),
     "port": 5432,
     "database": "postgres",
     "user": "postgres",
-    "password": "rUBEC200312",
-    "sslmode": "require"  # Требуется для Supabase
+    "password": os.getenv("SUPABASE_PASSWORD", "rUBEC200312"),
+    "sslmode": "require"
 }
+
+# Настройка хеширования паролей
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def get_db_connection():
     return psycopg2.connect(**PGSQL_CONFIG)
@@ -36,12 +46,13 @@ async def test_db():
 
 @app.post("/signup")
 async def signup(nickname: str, email: str, password: str):
+    hashed_password = pwd_context.hash(password)
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("INSERT INTO users (nickname, email, password) VALUES (%s, %s, %s) RETURNING id",
-                       (nickname, email, password))
+                       (nickname, email, hashed_password))
         user_id = cursor.fetchone()[0]
         conn.commit()
         return {"message": "User created successfully", "user_id": user_id}
@@ -60,28 +71,11 @@ async def login(email: str, password: str):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE email=%s AND password=%s", (email, password))
+        cursor.execute("SELECT * FROM users WHERE email=%s", (email,))
         user = cursor.fetchone()
-        if user:
+        if user and pwd_context.verify(password, user[3]):  # user[3] - это поле password
             return {"message": "Login successful", "user_id": user[0]}
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    except psycopg2.Error as err:
-        raise HTTPException(status_code=500, detail=str(err))
-    finally:
-        if conn:
-            cursor.close()
-            conn.close()
-
-@app.post("/add_course")
-async def add_course(name: str):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO courses (name) VALUES (%s) RETURNING id", (name,))
-        course_id = cursor.fetchone()[0]
-        conn.commit()
-        return {"message": "Course added successfully", "course_id": course_id}
     except psycopg2.Error as err:
         raise HTTPException(status_code=500, detail=str(err))
     finally:
@@ -111,7 +105,7 @@ async def generate_reset_code(email: str):
                       (email, code, expires_at, code, expires_at))
         conn.commit()
 
-        return {"message": "Reset code generated", "code": code}  # Для теста, удалите в продакшене
+        return {"message": "Reset code generated", "code": code}  # Для теста, в продакшене убрать возврат кода
     except psycopg2.Error as err:
         raise HTTPException(status_code=500, detail=str(err))
     finally:
@@ -145,15 +139,33 @@ async def verify_reset_code(email: str, code: str):
 
 @app.post("/reset_password")
 async def reset_password(email: str, new_password: str):
+    hashed_password = pwd_context.hash(new_password)
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("UPDATE users SET password=%s WHERE email=%s", (new_password, email))
+        cursor.execute("UPDATE users SET password=%s WHERE email=%s", (hashed_password, email))
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Email not found")
         conn.commit()
         return {"message": "Password reset successfully"}
+    except psycopg2.Error as err:
+        raise HTTPException(status_code=500, detail=str(err))
+    finally:
+        if conn:
+            cursor.close()
+            conn.close()
+
+@app.post("/add_course")
+async def add_course(name: str):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO courses (name) VALUES (%s) RETURNING id", (name,))
+        course_id = cursor.fetchone()[0]
+        conn.commit()
+        return {"message": "Course added successfully", "course_id": course_id}
     except psycopg2.Error as err:
         raise HTTPException(status_code=500, detail=str(err))
     finally:
