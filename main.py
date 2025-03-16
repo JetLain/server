@@ -123,7 +123,9 @@ async def login(email: str = Body(...), password: str = Body(...)):
             conn.close()
 
 @app.post("/generate_reset_code")
-async def generate_reset_code(email: str = Body(...)):
+async def generate_reset_code(email: str = Body(..., embed=True)):
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required.")
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -142,7 +144,6 @@ async def generate_reset_code(email: str = Body(...)):
         )
         conn.commit()
         
-        # Отправка email
         sender_email = EMAIL_USER
         sender_name = "DrMehrunes"
         msg = MIMEMultipart()
