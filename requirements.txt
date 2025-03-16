@@ -2,6 +2,5 @@ fastapi
 uvicorn
 psycopg2-binary
 passlib[bcrypt]
-smtplib
 google-auth-oauthlib
 requests
